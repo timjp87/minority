@@ -122,6 +122,24 @@ func (c *Cluster) Join(peer *net.TCPAddr) error {
 // keeps exchanging cluster topology information with them, trying to keep the
 // entire thing in one piece.
 func (c *Cluster) maintain() {
+	switch c.broker.Mode {
+	case "consensus":
+		err := c.broker.StartEngine()
+		if err != nil {
+			c.logger.Crit("Failed to start engine api endpoint: ", "err", err)
+			panic(err)
+		}
+
+		err = c.broker.AddEngineHandlerConsensus()
+		if err != nil {
+			c.logger.Error("Failed to add handler for consensus relay", "err", err)
+		}
+	case "execution":
+		c.logger.Info("Setting up http client to forward requests to exeuction engine")
+	case "bootnode":
+		c.logger.Info("Running in bootnode mode")
+	}
+
 	// Create a new topology consumer and stream updates into a maintenance channel
 	consumer, err := c.broker.NewConsumer(topologyTopic)
 	if err != nil {
@@ -417,7 +435,7 @@ func (c *Cluster) reportStats() {
 
 	// Flush the entire stats to the console
 	stats.Flush()
-	c.logger.Info("Updated cluster topology\n\n" + string(buffer.Bytes()))
+	c.logger.Info("Updated cluster topology\n\n" + buffer.String())
 }
 
 // reportClusterMembers creates a membership table to report which brokers the
@@ -506,7 +524,7 @@ func (c *Cluster) reportUnaccountedBrokers(w io.Writer, brokers []string) {
 	unaccounted := make([][]string, 0, len(brokers))
 	for src, view := range c.views {
 		var extras []string
-		for dst, _ := range view {
+		for dst := range view {
 			if idx := sort.SearchStrings(brokers, dst); idx == len(brokers) || brokers[idx] != dst {
 				extras = append(extras, dst)
 			}
