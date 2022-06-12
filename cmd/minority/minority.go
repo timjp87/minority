@@ -14,14 +14,22 @@ import (
 )
 
 var (
-	identityFlag string
-	datadirFlag  string
-	secretFlag   string
-	bootnodeFlag string
-	bindAddrFlag string
-	bindPortFlag int
-	extAddrFlag  string
-	extPortFlag  int
+	identityFlag   string
+	datadirFlag    string
+	secretFlag     string
+	bootnodeFlag   string
+	lookupdFlag    string
+	bindAddrFlag   string
+	bindPortFlag   int
+	httpAddrFlag   string
+	httpPortFlag   int
+	httpsPortFlag  int
+	engineAddrFlag string
+	enginePortFlag int
+	enableTLS      bool
+	enableHTTP     bool
+	extAddrFlag    string
+	extPortFlag    int
 )
 
 func main() {
@@ -38,6 +46,7 @@ func main() {
 	cmdBootnode.Flags().StringVar(&datadirFlag, "node.datadir", filepath.Join(os.Getenv("HOME"), ".minority", "<uid>"), "Folder to persist state through restarts")
 	cmdBootnode.Flags().StringVar(&secretFlag, "node.secret", "", "Shared secret to authenticate and encrypt with")
 	cmdBootnode.Flags().StringVar(&bootnodeFlag, "node.boot", "", "Entrypoint into an existing multiplexer cluster")
+	cmdBootnode.Flags().StringVar(&lookupdFlag, "nsq.lookupd", "", "Entrypoint into a nsqlookupd instance to connect to")
 	cmdBootnode.Flags().StringVar(&bindAddrFlag, "bind.addr", "0.0.0.0", "Listener interface for remote multiplexers")
 	cmdBootnode.Flags().IntVar(&bindPortFlag, "bind.port", 4150, "Listener port for remote multiplexers")
 	cmdBootnode.Flags().StringVar(&extAddrFlag, "ext.addr", externalAddress(), "Advertised address for remote multiplexers")
@@ -54,8 +63,16 @@ func main() {
 	cmdConsensus.Flags().StringVar(&datadirFlag, "node.datadir", filepath.Join(os.Getenv("HOME"), ".minority", "<uid>"), "Folder to persist state through restarts")
 	cmdConsensus.Flags().StringVar(&secretFlag, "node.secret", "", "Shared secret to authenticate and encrypt with")
 	cmdConsensus.Flags().StringVar(&bootnodeFlag, "node.boot", "", "Entrypoint into an existing multiplexer cluster")
+	cmdConsensus.Flags().StringVar(&lookupdFlag, "nsq.lookupd", "", "Entrypoint into a nsqlookupd instance to connect to")
 	cmdConsensus.Flags().StringVar(&bindAddrFlag, "bind.addr", "0.0.0.0", "Listener interface for remote multiplexers")
 	cmdConsensus.Flags().IntVar(&bindPortFlag, "bind.port", 4150, "Listener port for remote multiplexers")
+	cmdConsensus.Flags().StringVar(&httpAddrFlag, "http.addr", externalAddress(), "HTTP interface for remote multiplexers")
+	cmdConsensus.Flags().IntVar(&httpPortFlag, "http.port", 4151, "HTTP interface port for remote multiplexers")
+	cmdConsensus.Flags().IntVar(&httpsPortFlag, "https.port", 4152, "HTTPS interface port for remote multiplexers")
+	cmdConsensus.Flags().IntVar(&enginePortFlag, "engine.port", 8551, "Interface port for the consensus client to use as engine api")
+	cmdConsensus.Flags().StringVar(&engineAddrFlag, "engine.addr", externalAddress(), "Interface for the consensus client to use as engine api")
+	cmdConsensus.Flags().BoolVar(&enableTLS, "enable.tls", true, "Enable TLS for all http/tcp communication (default = true)")
+	cmdConsensus.Flags().BoolVar(&enableHTTP, "enable.http", false, "Enable http interface on NSQ daemon")
 	cmdConsensus.Flags().StringVar(&extAddrFlag, "ext.addr", externalAddress(), "Advertised address for remote multiplexers")
 	cmdConsensus.Flags().IntVar(&extPortFlag, "ext.port", 0, "Advertised port for remote multiplexers (default = bind.port)")
 	cmdConsensus.MarkFlagRequired("node.identity")
@@ -70,8 +87,16 @@ func main() {
 	cmdExecution.Flags().StringVar(&datadirFlag, "node.datadir", filepath.Join(os.Getenv("HOME"), ".minority", "<uid>"), "Folder to persist state through restarts")
 	cmdExecution.Flags().StringVar(&secretFlag, "node.secret", "", "Shared secret to authenticate and encrypt with")
 	cmdExecution.Flags().StringVar(&bootnodeFlag, "node.boot", "", "Entrypoint into an existing multiplexer cluster")
+	cmdExecution.Flags().StringVar(&lookupdFlag, "nsq.lookupd", "", "Entrypoint into a nsqlookupd instance to connect to")
 	cmdExecution.Flags().StringVar(&bindAddrFlag, "bind.addr", "0.0.0.0", "Listener interface for remote multiplexers")
 	cmdExecution.Flags().IntVar(&bindPortFlag, "bind.port", 4150, "Listener port for remote multiplexers")
+	cmdExecution.Flags().StringVar(&httpAddrFlag, "http.addr", externalAddress(), "HTTP interface for remote multiplexers")
+	cmdExecution.Flags().IntVar(&httpPortFlag, "http.port", 4151, "HTTP interface port for remote multiplexers")
+	cmdExecution.Flags().IntVar(&httpsPortFlag, "https.port", 4152, "HTTP interface port for remote multiplexers")
+	cmdExecution.Flags().BoolVar(&enableTLS, "enable.tls", true, "Enable TLS for all http/tcp communication (default = true)")
+	cmdExecution.Flags().BoolVar(&enableHTTP, "enable.http", false, "Enable http interface on NSQ daemon (defaut = false)")
+	cmdExecution.Flags().IntVar(&enginePortFlag, "engine.port", 8551, "Interface port for the relay to forward requests to an execution client")
+	cmdExecution.Flags().StringVar(&engineAddrFlag, "engine.addr", externalAddress(), "Interface for the relay to forward requests to an execution client")
 	cmdExecution.Flags().StringVar(&extAddrFlag, "ext.addr", externalAddress(), "Advertised address for remote multiplexers")
 	cmdExecution.Flags().IntVar(&extPortFlag, "ext.port", 0, "Advertised port for remote multiplexers (default = bind.port)")
 	cmdExecution.MarkFlagRequired("node.identity")
@@ -97,15 +122,41 @@ func main() {
 
 func runRelay(cmd *cobra.Command, args []string) {
 	// Configure and start the message broker
+
 	brokerConfig := &broker.Config{
-		Name:    identityFlag,
-		Datadir: strings.Replace(datadirFlag, "<uid>", identityFlag, -1),
-		Secret:  secretFlag,
-		Listener: &net.TCPAddr{
+		Name:       identityFlag,
+		Mode:       broker.RelayMode(cmd.Use),
+		Datadir:    strings.Replace(datadirFlag, "<uid>", identityFlag, -1),
+		Secret:     secretFlag,
+		EnableTLS:  enableTLS,
+		EnableHTTP: enableHTTP,
+		EngineInterface: &net.TCPAddr{
+			IP:   net.ParseIP(engineAddrFlag),
+			Port: enginePortFlag,
+		},
+		HTTPListener: &net.TCPAddr{
+			IP:   net.ParseIP(httpAddrFlag),
+			Port: httpPortFlag,
+		},
+		HTTPSListener: &net.TCPAddr{
+			IP:   net.ParseIP(httpAddrFlag),
+			Port: httpsPortFlag,
+		},
+		TCPListener: &net.TCPAddr{
 			IP:   net.ParseIP(bindAddrFlag),
 			Port: bindPortFlag,
 		},
 	}
+
+	if lookupdFlag != "" {
+		var err error
+		lookupdaddr, err := net.ResolveTCPAddr("tcp", lookupdFlag)
+		if err != nil {
+			log.Crit("Failed to parse nsqlookupd tcp-address", "addr", lookupdFlag)
+		}
+		brokerConfig.NSQLoookupdAddr = lookupdaddr
+	}
+
 	broker, err := broker.New(brokerConfig)
 	if err != nil {
 		log.Crit("Failed to start message broker", "err", err)
@@ -116,12 +167,14 @@ func runRelay(cmd *cobra.Command, args []string) {
 	if extPortFlag == 0 {
 		extPortFlag = bindPortFlag
 	}
+
 	clusterConfig := &cluster.Config{
 		External: &net.TCPAddr{
 			IP:   net.ParseIP(extAddrFlag),
 			Port: extPortFlag,
 		},
 	}
+
 	cluster, err := cluster.New(clusterConfig, broker)
 	if err != nil {
 		log.Crit("Failed to start message cluster", "err", err)
@@ -138,6 +191,7 @@ func runRelay(cmd *cobra.Command, args []string) {
 			log.Crit("Failed to join to bootnode", "err", err)
 		}
 	}
+
 	// Wait until the process is terminated
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt)
@@ -150,7 +204,7 @@ func runMerge(cmd *cobra.Command, args []string) {
 		Name:    identityFlag,
 		Datadir: strings.Replace(datadirFlag, "<uid>", identityFlag, -1),
 		Secret:  secretFlag,
-		Listener: &net.TCPAddr{
+		TCPListener: &net.TCPAddr{
 			IP:   net.ParseIP(bindAddrFlag),
 			Port: bindPortFlag,
 		},
