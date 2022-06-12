@@ -140,7 +140,7 @@ func TestRenameConvergence(t *testing.T) {
 	clusterA.Close()
 	brokerA.Close()
 
-	brokerA, _ = broker.New(&broker.Config{Name: "test-broker-A2", Datadir: datadirA, Listener: externalA, Logger: log.New("tester", "A2")})
+	brokerA, _ = broker.New(&broker.Config{Name: "test-broker-A2", Datadir: datadirA, TCPListener: externalA, Logger: log.New("tester", "A2")})
 	defer brokerA.Close()
 
 	clusterA, _ = New(&Config{External: &net.TCPAddr{IP: ipv4Localhost, Port: brokerA.Port()}, Logger: log.New("tester", "A2")}, brokerA)
@@ -216,7 +216,7 @@ func TestOfflineRenameConvergence(t *testing.T) {
 	// TODO(karalabe): check partial convergence?
 
 	// Restart the terminated cluster with a new name
-	brokerA, _ = broker.New(&broker.Config{Name: "test-broker-A2", Datadir: datadirA, Listener: externalA, Logger: log.New("tester", "A2")})
+	brokerA, _ = broker.New(&broker.Config{Name: "test-broker-A2", Datadir: datadirA, TCPListener: externalA, Logger: log.New("tester", "A2")})
 	defer brokerA.Close()
 
 	clusterA, _ = New(&Config{External: &net.TCPAddr{IP: ipv4Localhost, Port: brokerA.Port()}, Logger: log.New("tester", "A2")}, brokerA)

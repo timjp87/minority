@@ -24,11 +24,11 @@ func TestClientPubSub(t *testing.T) {
 	defer os.RemoveAll(datadir)
 
 	broker, err := New(&Config{
-		Name:     "test-broker",
-		Datadir:  datadir,
-		Secret:   "secret test seed",
-		Listener: &net.TCPAddr{IP: net.IPv4zero, Port: 0},
-		Logger:   log.New("host", "broker"),
+		Name:        "test-broker",
+		Datadir:     datadir,
+		Secret:      "secret test seed",
+		TCPListener: &net.TCPAddr{IP: net.IPv4zero, Port: 0},
+		Logger:      log.New("host", "broker"),
 	})
 	if err != nil {
 		t.Fatalf("Failed to start message broker: %v", err)
