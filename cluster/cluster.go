@@ -15,6 +15,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/karalabe/minority/broker"
+	"github.com/karalabe/minority/common"
 	"github.com/nsqio/go-nsq"
 	"github.com/olekukonko/tablewriter"
 )
@@ -35,10 +36,10 @@ type Cluster struct {
 	address *net.TCPAddr   // External address of the local broker
 	broker  *broker.Broker // Broker through which to communicate
 
-	nodes map[string]*net.TCPAddr     // Known remote relays and their addresses
-	times map[string]uint64           // Timestamps of the last broker updates
-	views map[string]map[string]*node // Remote views of the broker cluster
-	prods map[string]*nsq.Producer    // Producers writing into each remote broker
+	nodes map[string]*net.TCPAddr            // Known remote relays and their addresses
+	times map[string]uint64                  // Timestamps of the last broker updates
+	views map[string]map[string]*common.Node // Remote views of the broker cluster
+	prods map[string]*nsq.Producer           // Producers writing into each remote broker
 
 	join chan *joinRequest // Channel for requesting joining a remote cluster
 
@@ -68,8 +69,8 @@ func New(config *Config, broker *broker.Broker) (*Cluster, error) {
 		times: map[string]uint64{
 			self: uint64(time.Now().UnixNano()),
 		},
-		views: map[string]map[string]*node{
-			self: make(map[string]*node),
+		views: map[string]map[string]*common.Node{
+			self: make(map[string]*common.Node),
 		},
 		prods:  make(map[string]*nsq.Producer),
 		join:   make(chan *joinRequest),
@@ -122,34 +123,42 @@ func (c *Cluster) Join(peer *net.TCPAddr) error {
 // keeps exchanging cluster topology information with them, trying to keep the
 // entire thing in one piece.
 func (c *Cluster) maintain() {
+
 	switch c.broker.Mode {
+	// As consensus node relay we start a http server that acts as sink for
+	// the engine api calls. Once started we attach a handler that will publish
+	// the raw http.Request to the JSON_RPC method request topic.
 	case "consensus":
-		err := c.broker.StartEngine()
-		if err != nil {
+		if err := c.broker.StartEngine(); err != nil {
 			c.logger.Crit("Failed to start engine api endpoint: ", "err", err)
 			panic(err)
 		}
 
-		err = c.broker.AddEngineHandlerConsensus()
-		if err != nil {
+		if err := c.broker.AddConsensusRequestResponseHandler(); err != nil {
 			c.logger.Error("Failed to add handler for consensus relay", "err", err)
 		}
+
+	// As execution node we set up consumers for each JSON_RPC request topic that
+	// will deliver the raw http.Request sent by consensus layer.
 	case "execution":
 		c.logger.Info("Setting up http client to forward requests to exeuction engine")
+		if err := c.broker.AddExectionRequestResponseHandler(); err != nil {
+			c.logger.Error("Failed to set up handler for execution relay", "err", err)
+		}
 	case "bootnode":
 		c.logger.Info("Running in bootnode mode")
 	}
 
 	// Create a new topology consumer and stream updates into a maintenance channel
-	consumer, err := c.broker.NewConsumer(topologyTopic)
+	consumer, err := c.broker.NewConsumer(common.TopologyTopic)
 	if err != nil {
 		panic(err)
 	}
 	defer consumer.Stop()
 
-	updateCh := make(chan *update)
+	updateCh := make(chan *common.Update)
 	consumer.AddHandler(nsq.HandlerFunc(func(msg *nsq.Message) error {
-		update := new(update)
+		update := new(common.Update)
 		if err := json.Unmarshal(msg.Body, update); err != nil {
 			return err
 		}
@@ -206,7 +215,7 @@ func (c *Cluster) maintain() {
 				c.prods[name] = producer
 
 				self := c.broker.Name()
-				c.views[self][name] = &node{
+				c.views[self][name] = &common.Node{
 					Address: addr.String(),
 					Alive:   true,
 				}
@@ -216,7 +225,7 @@ func (c *Cluster) maintain() {
 		// If the local view of the network was changed, generate an update message
 		// and publish it with all live producers
 		if changed {
-			msg := &update{
+			msg := &common.Update{
 				Owner: c.broker.Name(),
 				Time:  uint64(time.Now().UnixNano()),
 				Nodes: c.views[c.broker.Name()],
@@ -226,7 +235,7 @@ func (c *Cluster) maintain() {
 				panic(err) // Can't fail, panic during development
 			}
 			for _, producer := range c.prods {
-				if err := producer.Publish(topologyTopic, blob); err != nil {
+				if err := producer.Publish(common.TopologyTopic, blob); err != nil {
 					c.logger.Warn("Failed to publish topology update", "err", err)
 				}
 			}
@@ -276,7 +285,7 @@ func (c *Cluster) maintain() {
 			// update and drop the producer. This will force the members of the
 			// remote cluster to dial back and give us their true external address
 			// and name even if the user supplied something weird.
-			msg := &update{
+			msg := &common.Update{
 				Owner: c.broker.Name(),
 				Time:  c.times[c.broker.Name()],
 				Nodes: c.views[c.broker.Name()],
@@ -285,7 +294,7 @@ func (c *Cluster) maintain() {
 			if err != nil {
 				panic(err) // Can't fail, panic during development
 			}
-			if err := producer.Publish(topologyTopic, blob); err != nil {
+			if err := producer.Publish(common.TopologyTopic, blob); err != nil {
 				c.logger.Warn("Failed to publish topology update", "err", err)
 			}
 			producer.Stop()
