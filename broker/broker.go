@@ -151,12 +151,13 @@ func New(config *Config) (*Broker, error) {
 			IP:   net.ParseIP(config.EngineInterface.IP.String()),
 			Port: config.EngineInterface.Port,
 		},
-		Consumers: make(map[string]*nsq.Consumer),
-		Router:    httprouter.New(),
-		tlsCert:   cert,
-		tlsKey:    key,
-		daemon:    daemon,
-		logger:    logger,
+		NSQLookupdHTTPAddr: config.NSQLoookupdHTTPAddr,
+		Consumers:          make(map[string]*nsq.Consumer),
+		Router:             httprouter.New(),
+		tlsCert:            cert,
+		tlsKey:             key,
+		daemon:             daemon,
+		logger:             logger,
 	}, nil
 }
 
