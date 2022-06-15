@@ -39,7 +39,37 @@ E.g.
 
 An added benefit of an advanced communication layer between the consensus/execution clients is capability for uniformly gathering and reporting behavioral metrics across the various client flavors; and potentially detecting operational degradations before they spiral out of control, causing an outage. A communication middleware also permits uniformly gathering an audit trail of events passing between the two layers, potentially aiding debugging client issues. 
 
+## Usage
+
+This example assumes that everything is started locally so ports are adjusted to avoid conflicts.
+First boot up the minority client in consensus relay mode:
+
+```
+$ minority relay consensus --node.identity "teku" --node.secret "SomeSecretYouUseForAllMinorityNodes" 
+```
+
+The client will accept HTTP requests on localhost at the port that is usually served by the execution client (8551).
+
+Start the execution engine relay which will consume from topics for each of the JSON_RPC methods and specify the interface that it will forward requests to. Since localhost:8551 is already used by the consensus relay adjust the ports on both the execution relay and the execution client that you start later. We use a different bind.port for the nsqd that is embedded to not clash with the other running instance and directly use it as bootnode.
+
+```
+$ minority relay execution --node.identity "erigon" --node.secret "SomeSecretYouUseForAllMinorityNodes" --bind.port 4155 --engine.port=8552 --node.boot=127.0.0.1:4150
+```
+You can start your consensus client without changing any of its configuration. When you start the execution client make sure it listens on 8552 for the authenticated engine api port.
+
+## Milestones
+
+- [x] Relay a JSON_RPC message between EL and CL client
+- [ ] Relay JSON_RPC messages with low latency
+- [ ] Full sync in 1:1 (CL/EL) setup
+- [ ] Full sync in 1:n (CL/EL) setup
+- [ ] Full sync in n:m (CL/EL) setup
+  
+
 ## F.A.Q.
+**Should I use this in production at this stage?**
+
+No!
 
 **Running an execution client is expensive! Isn't it overkill to ask validators to run 2-3?**
 
