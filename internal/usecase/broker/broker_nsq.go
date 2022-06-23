@@ -2,6 +2,7 @@ package broker
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/karalabe/minority/internal/entity"
 	"github.com/karalabe/minority/pkg/nsqd"
@@ -42,6 +43,21 @@ func New(nsqd *nsqd.NSQD, mode entity.RelayMode, c *entity.Cluster) (*ClusterBro
 		return nil, err
 	}
 
+	rpcMsg := entity.JsonRpcMessage{
+		Method: "announce",
+	}
+
+	announcementResp := entity.JsonRpcResponse{
+		Code: 200,
+		Body: rpcMsg,
+	}
+
+	announcementReq := entity.JsonRpcRequest{
+		Body: rpcMsg,
+	}
+
+	announcementReqBytes, _ := json.Marshal(announcementReq)
+	announcementRespBytes, _ := json.Marshal(announcementResp)
 	for _, topic := range entity.EthereumTopics {
 
 		var consumer *nsq.Consumer
@@ -50,7 +66,8 @@ func New(nsqd *nsqd.NSQD, mode entity.RelayMode, c *entity.Cluster) (*ClusterBro
 		case entity.Consensus:
 			// Publish an announcement message to precreate the topic.
 			// This seems a bit stupid but somehow it's needed.
-			if err := producer.Publish(string(topic)+"_resp", []byte("HELLO")); err != nil {
+
+			if err := producer.Publish(string(topic)+"_resp", announcementRespBytes); err != nil {
 				return nil, err
 			}
 			consumer, err = nsq.NewConsumer(string(topic)+"_resp", nsqd.Name, config)
@@ -59,8 +76,8 @@ func New(nsqd *nsqd.NSQD, mode entity.RelayMode, c *entity.Cluster) (*ClusterBro
 			}
 			cb.Consumers[topic+"_resp"] = consumer
 		case entity.Execution:
-			// Publish an empty message to precreate the topic
-			if err := producer.Publish(string(topic)+"_req", []byte("HELLO")); err != nil {
+			// Publish an announcement message to precreate the topic
+			if err := producer.Publish(string(topic)+"_req", announcementReqBytes); err != nil {
 				return nil, err
 			}
 			consumer, err = nsq.NewConsumer(string(topic)+"_req", nsqd.Name, config)
@@ -72,6 +89,17 @@ func New(nsqd *nsqd.NSQD, mode entity.RelayMode, c *entity.Cluster) (*ClusterBro
 
 	}
 
+	// Publish an announcement update message to precreate the topic
+	update := &entity.Update{
+		Owner: cb.name,
+		Time:  uint64(time.Now().UnixNano()),
+		Nodes: cb.cluster.Views[cb.name],
+	}
+
+	updateMsg, _ := json.Marshal(update)
+	if err := producer.Publish(string(entity.TopologyTopic), updateMsg); err != nil {
+		return nil, err
+	}
 	consumer, err := nsq.NewConsumer(string(entity.TopologyTopic), nsqd.Name, config)
 	if err != nil {
 		return nil, err
