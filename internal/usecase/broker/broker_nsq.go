@@ -37,6 +37,8 @@ func New(nsqd *nsqd.NSQD, mode entity.RelayMode, c *entity.Cluster) (*ClusterBro
 	//config.TlsConfig = crypto.MakeTLSConfig(tlsCert, tlsKey)
 
 	producer, err := nsq.NewProducer(cb.daemon.RealTCPAddr().String(), config)
+	defer producer.Stop()
+
 	cb.Producer = producer
 
 	if err != nil {
@@ -70,20 +72,26 @@ func New(nsqd *nsqd.NSQD, mode entity.RelayMode, c *entity.Cluster) (*ClusterBro
 			if err := producer.Publish(string(topic)+"_resp", announcementRespBytes); err != nil {
 				return nil, err
 			}
+
 			consumer, err = nsq.NewConsumer(string(topic)+"_resp", nsqd.Name, config)
 			if err != nil {
 				return nil, err
 			}
+			defer consumer.Stop()
+
 			cb.Consumers[topic+"_resp"] = consumer
 		case entity.Execution:
 			// Publish an announcement message to precreate the topic
 			if err := producer.Publish(string(topic)+"_req", announcementReqBytes); err != nil {
 				return nil, err
 			}
+
 			consumer, err = nsq.NewConsumer(string(topic)+"_req", nsqd.Name, config)
 			if err != nil {
 				return nil, err
 			}
+			defer consumer.Stop()
+
 			cb.Consumers[topic+"_req"] = consumer
 		}
 
@@ -104,6 +112,7 @@ func New(nsqd *nsqd.NSQD, mode entity.RelayMode, c *entity.Cluster) (*ClusterBro
 	if err != nil {
 		return nil, err
 	}
+	defer consumer.Stop()
 
 	cb.Consumers[entity.TopologyTopic] = consumer
 
