@@ -3,6 +3,7 @@ package entity
 // Update is a message sent to all other relays in the cluster to share
 // the local views and allow everyone to construct an accurate global view.
 type Update struct {
+	Mode  RelayMode        `json:"mode"`  // The mode the node is running in
 	Owner string           `json:"owner"` // Unique ID of the node that broadcast this update
 	Time  uint64           `json:"time"`  // Timestamp in ns of this update (used as seq number)
 	Nodes map[string]*Node `json:"nodes"` // Node ID to NSQD address mapping
