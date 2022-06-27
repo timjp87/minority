@@ -90,17 +90,6 @@ func New(cfg config.NSQ) (*NSQD, error) {
 	}
 	go daemon.Main()
 
-	nsqConfig := nsq.NewConfig()
-	nsqConfig.Snappy = true
-	nsqConfig.TlsV1 = true
-	nsqConfig.TlsConfig = crypto.MakeTLSConfig(cert, key)
-
-	producer, err := nsq.NewProducer(cfg.TCPListener.String(), nsqConfig)
-	if err != nil {
-		return nil, err
-	}
-	producer.SetLogger(&nsqlogger.NSQProducerLogger{Logger: logger}, nsq.LogLevelInfo)
-
 	return &NSQD{
 		Name:   cfg.Name,
 		Daemon: daemon,
