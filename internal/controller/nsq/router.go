@@ -1,9 +1,9 @@
 package nsq_controller
 
 import (
+	"bytes"
 	"encoding/json"
 	"net"
-	"strings"
 
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/karalabe/minority/internal/entity"
@@ -14,45 +14,31 @@ import (
 func AddHandler(c *broker.ClusterBroker, nsqlookupdhttp *net.TCPAddr) {
 	for key, consumer := range c.Consumers {
 		log.Info("Setting up handler", "topic", key)
-		consumer.SetLoggerLevel(nsq.LogLevelInfo)
 		consumer.AddHandler(nsq.HandlerFunc(func(message *nsq.Message) error {
-			switch strings.Contains(string(key), "_req") {
-			case true:
-				var rpcReq entity.JsonRpcRequest
-				if err := json.Unmarshal(message.Body, &rpcReq); err != nil {
-					return err
-				}
+			var clusterMsg *entity.Message
 
-				// Discards messages that were published in precreation of topic
-				if rpcReq.Body.Method != "announce" {
-					log.Info("Handeling nsq message...", "method", rpcReq.Body.Method)
-					c.ConsumeRequest(&rpcReq)
-				}
+			decoder := json.NewDecoder(bytes.NewReader(message.Body))
+			decoder.DisallowUnknownFields()
 
-			case false:
-				// When it's not a request topic it could be about toplogy if not it's response topic
-				if strings.Contains(string(key), "topology") {
-					var toplogyUpdate entity.Update
-					if err := json.Unmarshal(message.Body, &toplogyUpdate); err != nil {
-						return err
-					}
-					log.Info("Handeling topology update", "owner", toplogyUpdate.Owner, "time", toplogyUpdate.Time)
-					c.ConsumeUpdate(&toplogyUpdate)
-				} else {
-					var rpcResp entity.JsonRpcResponse
-					if err := json.Unmarshal(message.Body, &rpcResp); err != nil {
-						return err
-					}
-
-					// Discards messages published in topic precreation
-					if rpcResp.Body.Method != "announce" {
-						log.Info("Handeling nsq message...", "method", rpcResp.Body.Method)
-						c.ConsumeResponse(&rpcResp)
-
-					}
-				}
-
+			if err := decoder.Decode(&clusterMsg); err != nil {
+				log.Error("Failed to decode nsq message to cluster message", "err", err)
 			}
+
+			switch clusterMsg.MessageType {
+			case "request":
+				if clusterMsg.Request.Body.Method != "announce" {
+					c.ConsumeRequest(clusterMsg.Request)
+				}
+			case "response":
+				if clusterMsg.Response.Body.Method != "announce" {
+					c.ConsumeResponse(clusterMsg.Response)
+				}
+			case "update":
+				if clusterMsg.Update.Owner != c.Name {
+					c.ConsumeUpdate(clusterMsg.Update)
+				}
+			}
+
 			return nil
 		}))
 		consumer.ConnectToNSQLookupd(nsqlookupdhttp.String())
