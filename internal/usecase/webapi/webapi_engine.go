@@ -28,9 +28,11 @@ func New(cfg config.HTTP) *ClusterWebAPI {
 
 func (w *ClusterWebAPI) Send(msg *entity.JsonRpcRequest) (*entity.JsonRpcResponse, error) {
 	// Create new http request
-	request := http.Request{}
+	request := http.Request{
+		Header: make(http.Header),
+	}
 	request.Method = "POST"
-	request.Header["Authorization"] = msg.Header["Authorization"]
+	request.Header.Set("Authorization", msg.Header.Get("Authorization"))
 	request.URL, _ = url.Parse("http://" + w.conf.String()) // Can't fail as we handle this upstream
 	body, err := json.Marshal(msg.Body)
 	if err != nil {
