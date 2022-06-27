@@ -6,7 +6,7 @@ type (
 	Cluster interface {
 		MaintainTopology()
 		HandleConsensusRequest(*entity.JsonRpcRequest) (*entity.JsonRpcResponse, error)
-		ForwardConsensusRequest() error
+		ForwardConsensusRequest()
 	}
 	ClusterBroker interface {
 		PublishRequest(*entity.JsonRpcRequest) error
