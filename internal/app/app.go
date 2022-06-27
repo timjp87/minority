@@ -48,7 +48,7 @@ func Run(cfg *config.Config) error {
 		return err
 	}
 
-	clusterBroker, err := broker.New(nsqbroker, cfg.Mode, cluster)
+	clusterBroker, err := broker.New(nsqbroker, cfg.Mode, cluster, cfg.Secret)
 	if err != nil {
 		return err
 	}
@@ -61,12 +61,15 @@ func Run(cfg *config.Config) error {
 	// Use case
 	clusterUseCase := usecase.New(cfg.App.Mode, cluster, clusterBroker, clusterWebAPI)
 
-	// HTTP Server
-	if cfg.Mode == entity.Consensus {
+	switch cfg.Mode {
+	case entity.Consensus:
+		// HTTP Server
 		handler := httprouter.New()
 		controller.NewRouter(handler, clusterUseCase)
 		log.Info("Starting engine api interface", "endpoint", cfg.HTTP.IP.String()+":"+strconv.Itoa(cfg.HTTP.Port))
 		httpServer := httpserver.New(handler, httpserver.Port(strconv.Itoa(cfg.HTTP.Port)))
+
+		go clusterUseCase.MaintainTopology()
 
 		// Waiting signal
 		interrupt := make(chan os.Signal, 1)
@@ -77,19 +80,17 @@ func Run(cfg *config.Config) error {
 			log.Error("Failed to start http server", "err", err)
 		}
 
-		// Shutdown
-		err = httpServer.Shutdown()
-		if err != nil {
-			log.Error("app - Run - httpServer.Shutdown:", "err", err)
-		}
+	case entity.Execution:
+		go clusterUseCase.MaintainTopology()
+		go clusterUseCase.ForwardConsensusRequest()
+
+		// Waiting signal
+		interrupt := make(chan os.Signal, 1)
+		signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
+
+		s := <-interrupt
+		log.Info("SIGNAL: " + s.String() + " Stopping minority...")
 	}
-
-	// Waiting signal
-	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
-
-	s := <-interrupt
-	log.Info("SIGNAL: " + s.String() + " Stopping minority...")
 
 	return nil
 }
