@@ -14,6 +14,21 @@ import (
 	"github.com/olekukonko/tablewriter"
 )
 
+type MessageType string
+
+const (
+	RequestMessage  MessageType = "request"
+	ResponseMessage MessageType = "response"
+	UpdateMessage   MessageType = "update"
+)
+
+type Message struct {
+	MessageType MessageType
+	Request     *JsonRpcRequest
+	Response    *JsonRpcResponse
+	Update      *Update
+}
+
 type RelayMode string
 
 const (
