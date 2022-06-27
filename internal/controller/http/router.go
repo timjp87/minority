@@ -25,6 +25,10 @@ func NewRouter(router *httprouter.Router, uc usecase.Cluster) *httprouter.Router
 		rpcResp, err := uc.HandleConsensusRequest(rpcReq)
 		if err != nil {
 			log.Error("Failed to handel consensus request", "err", err)
+			w.WriteHeader(500)
+			errMsg := "Failed with error: " + err.Error()
+			w.Write([]byte(errMsg))
+			return
 		}
 
 		// Responde with the response we received from execution client side
