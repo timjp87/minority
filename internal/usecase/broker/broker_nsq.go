@@ -30,14 +30,15 @@ func New(nsqd *nsqd.NSQD, mode entity.RelayMode, c *entity.Cluster, secret strin
 	tlsCert, tlsKey := crypto.MakeTLSCert(secret)
 
 	cb := &ClusterBroker{
-		Name:      nsqd.Name,
-		cluster:   c,
-		daemon:    nsqd.Daemon,
-		tlsCert:   tlsCert,
-		tlsKey:    tlsKey,
-		RespChan:  make(chan *entity.JsonRpcResponse),
-		ReqChan:   make(chan *entity.JsonRpcRequest),
-		Consumers: make(map[entity.Topic]*nsq.Consumer),
+		Name:       nsqd.Name,
+		cluster:    c,
+		daemon:     nsqd.Daemon,
+		tlsCert:    tlsCert,
+		tlsKey:     tlsKey,
+		RespChan:   make(chan *entity.JsonRpcResponse, 1),
+		ReqChan:    make(chan *entity.JsonRpcRequest, 1),
+		UpdateChan: make(chan *entity.Update),
+		Consumers:  make(map[entity.Topic]*nsq.Consumer),
 	}
 
 	config := nsq.NewConfig()
